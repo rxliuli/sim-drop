@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The single source of truth for the version is MARKETING_VERSION in project.yml
+      - 'project.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Must be >= 2: version-check reads the previous commit to compare against
+          fetch-depth: 2
+      # The version is read from settings.base.MARKETING_VERSION in project.yml. This action
+      # understands XcodeGen specs natively, so the path is located automatically.
+      - id: version
+        uses: rxliuli/version-check@v1
+        with:
+          file: project.yml
+
+  build-macos:
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true'
+    runs-on: macos-latest
+    environment: release-macOS
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # .xcodeproj is a xcodegen product (gitignored), so CI has to generate it.
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      # archive -> Developer ID sign -> DMG -> notarize -> staple -> Gatekeeper check.
+      # See https://github.com/rxliuli/apple-release.
+      # SimDrop can't ship on the Mac App Store (the app and its helper must run unsandboxed
+      # to drive `simctl` and the simulators' folders), so this is its only channel.
+      # Signing needs no provisioning profile: the app group is Team-ID-prefixed
+      # (N2X78TUUFG.com.rxliuli.sim-drop), which macOS accepts without one, and the
+      # extension's temporary-exception entitlements are allowed for Developer ID.
+      # The embedded helper tool (Contents/MacOS/SimDropHelper) and the File Provider
+      # extension are signed as part of the archive.
+      - uses: rxliuli/apple-release/dmg@v1
+        id: dmg
+        with:
+          project: SimDrop.xcodeproj
+          scheme: SimDrop
+          version: ${{ needs.check-version.outputs.version }}
+          certificate-base64: ${{ secrets.APPLE_CERTIFICATE_DEVELOPERID_BASE64 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_DEVELOPERID_PASSWORD }}
+          api-key: ${{ secrets.APPLE_API_KEY }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-issuer: ${{ secrets.APPLE_API_ISSUER }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SimDrop-macos
+          path: ${{ steps.dmg.outputs.dmg-path }}
+
+  release:
+    needs: [check-version, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ needs.check-version.outputs.version }}"
+          git tag "${VERSION}"
+          git push origin "${VERSION}"
+          gh release create "${VERSION}" \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            artifacts/*
+
+      # Homebrew: once a `sim-drop` cask exists in the tap, add the same
+      # rxliuli/apple-release/tap-update@v1 step the other apps use (gated on TAP_GITHUB_TOKEN).

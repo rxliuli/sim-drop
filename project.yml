@@ -1,0 +1,103 @@
+name: SimDrop
+options:
+  bundleIdPrefix: com.rxliuli
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: N2X78TUUFG
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  # Settings / onboarding UI. Not sandboxed. Registers the helper agent and the
+  # File Provider domain.
+  SimDrop:
+    type: application
+    platform: macOS
+    sources:
+      - SimDrop
+      - Shared
+      - path: LaunchAgents/com.rxliuli.sim-drop.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchAgents
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rxliuli.sim-drop
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_CFBundleDisplayName: SimDrop
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: SimDrop/SimDrop.entitlements
+      properties:
+        # Team-ID-prefixed (not "group.…"): on macOS this needs no provisioning profile,
+        # so Developer ID builds (CI, apple-release/dmg) sign without one.
+        com.apple.security.application-groups:
+          - N2X78TUUFG.com.rxliuli.sim-drop
+    dependencies:
+      - target: SimDropFileProvider
+      - target: SimDropHelper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+
+  # Background agent (launchd, via SMAppService). Not sandboxed. Must live in the
+  # app's Contents/MacOS as a plain tool: the system then treats it as the SimDrop
+  # app, which is what allows it to call NSFileProviderManager.signalEnumerator.
+  # Watches simulators, signals Finder about changes, runs `simctl addmedia`,
+  # moves deleted files to the Mac's Trash.
+  SimDropHelper:
+    type: tool
+    platform: macOS
+    sources: [SimDropHelper, Shared]
+    settings:
+      base:
+        PRODUCT_NAME: SimDropHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.rxliuli.sim-drop.helper
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        SKIP_INSTALL: YES
+
+  # File Provider extension. Sandboxed (required), with temporary exceptions
+  # for the CoreSimulator devices folder and the helper's Mach service.
+  SimDropFileProvider:
+    type: app-extension
+    platform: macOS
+    sources: [SimDropFileProvider, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rxliuli.sim-drop.FileProvider
+    info:
+      path: SimDropFileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: SimDrop
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Finder sidebar icon (same mechanism Google Drive uses).
+        CFBundleIcons:
+          CFBundlePrimaryIcon:
+            CFBundleSymbolName: iphone.and.arrow.right.inward
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+          NSExtensionFileProviderDocumentGroup: N2X78TUUFG.com.rxliuli.sim-drop
+          NSExtensionFileProviderSupportsEnumeration: true
+    entitlements:
+      path: SimDropFileProvider/SimDropFileProvider.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - N2X78TUUFG.com.rxliuli.sim-drop
+        com.apple.security.temporary-exception.files.home-relative-path.read-write:
+          - /Library/Developer/CoreSimulator/Devices/
+        com.apple.security.temporary-exception.mach-lookup.global-name:
+          - com.rxliuli.sim-drop.helper

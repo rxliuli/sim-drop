@@ -1,0 +1,174 @@
+# SimDrop
+
+Shows running iOS simulators in the Finder sidebar so you can drag files in and out of them.
+
+```
+SimDrop                      ← Finder sidebar › Locations
+└── iPhone Duo/              ← one folder per *booted* simulator
+    ├── Photos and Videos/   ← simulator Photos library
+    └── Downloads/           ← Files app › On My iPhone › Downloads
+```
+
+Simulators appear when they boot and disappear when they shut down. Everything is
+also reachable from the terminal:
+
+```sh
+cp config.json ~/Library/CloudStorage/SimDrop-SimDrop/iPhone\ Duo/Downloads/
+```
+
+## Install
+
+Download `SimDrop-macos.dmg` from GitHub Releases. It is Developer ID signed and
+notarized. SimDrop isn't on the Mac App Store and can't be: the app and its helper
+must run unsandboxed to drive `simctl` and the simulators' folders.
+
+## Setup
+
+Open SimDrop once. The window is only a settings page showing whether these two
+one-time approvals are done:
+
+1. **Background Service**: allow SimDrop in System Settings › General › Login Items.
+2. **Finder Extension**: click **Enable** in the Finder banner (or turn on SimDrop
+   under File Providers in System Settings).
+
+After that it works silently in the background, including after a restart. The
+window can be closed.
+
+## Behavior to know about
+
+### Dragging moves by default (hold ⌥ to copy)
+
+Finder moves files when you drag within the same volume and copies only across
+volumes. File Provider locations live in `~/Library/CloudStorage` on your startup
+disk, so **dragging a file from the Desktop into SimDrop moves it**. iCloud Drive
+and Google Drive behave the same way, and File Provider has no API to change this.
+
+- Hold **⌥ Option** while dragging to copy instead.
+- The other direction moves too: dragging a file **out of** a simulator's Downloads
+  removes it from the simulator. Photos are read-only, so dragging them out always
+  copies.
+
+Making SimDrop copy by default like a USB drive would require it to be a separate
+volume (e.g. an FSKit file system), which would be a rewrite.
+
+### Photos and Videos
+
+- In icon view, photos show real previews without downloading them first. The
+  extension provides downscaled thumbnails.
+- Dropped images and videos are imported with `simctl addmedia`, so they show up
+  in the Photos app. iOS renames them (e.g. `IMG_0007.JPG`), and Finder updates
+  the name to match.
+- Finder can't reject drops by file type, so **anything that isn't an image or
+  video is put in the same simulator's Downloads folder instead**. Finder moves
+  it there too.
+- When that happens SimDrop posts a notification saying where the file went.
+  (Known issue: clicking the notification doesn't open Finder yet.)
+- The list mirrors the Photos library: it is read from `Photos.sqlite`, so photos
+  deleted in the simulator (now in "Recently Deleted") disappear from Finder too.
+- **Deleting a photo in Finder moves it to the simulator's "Recently Deleted"**
+  (recoverable there for 30 days), with no confirmation dialog. If the Photos app
+  is open in the simulator, SimDrop relaunches it so the change shows.
+
+### Downloads
+
+- Supports adding, opening, replacing and deleting files and folders.
+- **Deleting goes to the Mac's Trash**, with no confirmation dialog. The file is
+  removed from the simulator and lands in your Trash. **Put Back** restores it
+  into the simulator.
+- Renaming and moving items inside Downloads isn't supported yet, because item
+  identifiers are path-based.
+- Changes made inside the simulator appear in Finder within a few seconds.
+
+### Scope
+
+- iOS simulators only. Real devices aren't supported: iOS doesn't expose the
+  Files app storage over USB, and photos written to a real device's DCIM folder
+  are not imported into its Photos library.
+
+## Architecture
+
+| Target | Sandbox | Role |
+|---|---|---|
+| `SimDrop` (app) | no | Settings window. Registers the helper (`SMAppService.agent`) and the single File Provider domain. |
+| `SimDropHelper` (launchd agent) | no | Starts at login. Watches `~/Library/Developer/CoreSimulator/Devices` with FSEvents and tells Finder to refresh (`signalEnumerator`). Over XPC it runs `xcrun simctl addmedia` and moves deleted Downloads files to the Mac's Trash. It must be a plain tool in `SimDrop.app/Contents/MacOS`. As a separate `.app` bundle, `signalEnumerator` fails with "The application cannot be used right now". |
+| `SimDropFileProvider` (extension) | yes | `NSFileProviderReplicatedExtension`. Reads and writes simulator folders directly through a temporary-exception entitlement, and asks the helper to import photos and to trash files. |
+| `Shared/` | — | Simulator discovery from `device.plist` (`state == 3` means booted), plus path resolution. |
+
+Paths inside a simulator (`~/Library/Developer/CoreSimulator/Devices/<UDID>/`):
+
+- Downloads: `data/Containers/Shared/AppGroup/<UUID>/File Provider Storage/Downloads`,
+  where the group's metadata plist has
+  `MCMMetadataIdentifier = group.com.apple.FileProvider.LocalStorage`.
+- Photos: `data/Media/DCIM/1xxAPPLE/`. Library state comes from
+  `data/Media/PhotoData/Photos.sqlite` (`ZASSET`, where `ZTRASHEDSTATE = 0`).
+
+Implementation notes:
+
+- **Change sync.** The helper calls `signalEnumerator(.workingSet)`. The working-set
+  enumerator diffs against the last snapshot it handed out (stored in the
+  extension's container) and reports removed items with `didDeleteItems`.
+  Leaving an item out of the working set does not remove it from Finder.
+- **Deleting photos.** The helper edits `Photos.sqlite` directly. It updates the
+  same `ZASSET` columns an in-app delete changes (`ZTRASHEDSTATE`, `ZTRASHEDREASON`,
+  `ZTRASHEDDATE`, `ZMODIFICATIONDATE`, `Z_OPT`), found by diffing the table before
+  and after deleting in the Photos app. The tables have Core Data triggers calling
+  `NSCoreDataTriggerUpdateAffectedObjectValue`, which only exists inside the Photos
+  daemon, so the helper registers a no-op function with that name. The Photos app
+  caches the library and only shows the change after a relaunch. This is unofficial:
+  a future iOS schema change may break it, and the helper then reports an error
+  instead of guessing.
+- **Thumbnails.** Photos get previews through `NSFileProviderThumbnailing`. Finder
+  only asks File Providers for thumbnails of media types, never for `.app`, `.ipa` or
+  `.zip` (an app-install feature was tried and removed for now). Thumbnails are
+  cached per content version, so bump `Item.contentSchema` after changing them.
+- **Folder types.** Directories are always reported as `public.folder`, including
+  bundles like `.app`. For uploads, the returned type must match the template, or
+  the system keeps retrying the create and never uploads the children.
+- **Item versions.** `Item.metadataSchema` is part of every metadata version. Bump
+  it when capabilities change, or Finder keeps the cached ones (e.g. photos showing
+  as "locked").
+- **Trash.** The domain keeps the default `supportsSyncingTrash = YES`, so Finder
+  reparents trashed items to `.trashContainer`. `modifyItem` moves the real file
+  to the Mac's Trash through the helper, and the next sync reports the item as
+  deleted. The extension must serve `.trashContainer` (an empty folder).
+  Otherwise the domain's `.Trash` becomes a stale handle and Finder fails with -36.
+
+## Release
+
+CI (`.github/workflows/release.yml`) runs when `MARKETING_VERSION` in `project.yml`
+changes on `main`. It generates the project with XcodeGen, then uses
+[`rxliuli/apple-release/dmg`](https://github.com/rxliuli/apple-release) to archive,
+sign with Developer ID, build the DMG, notarize, staple and publish a GitHub Release.
+The `release-macOS` environment needs these secrets: `APPLE_CERTIFICATE_DEVELOPERID_BASE64`,
+`APPLE_CERTIFICATE_DEVELOPERID_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`.
+
+No provisioning profile is involved. The app group is Team-ID-prefixed
+(`N2X78TUUFG.com.rxliuli.sim-drop`, not `group.…`), which macOS accepts without one.
+
+## Build
+
+Requires [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+
+```sh
+xcodegen generate
+xcodebuild -project SimDrop.xcodeproj -scheme SimDrop -derivedDataPath build \
+  -allowProvisioningUpdates build
+# restart the extension and helper so they pick up the new build
+pkill -x SimDropFileProvider; launchctl kickstart -k gui/$(id -u)/com.rxliuli.sim-drop.helper
+open build/Build/Products/Debug/SimDrop.app
+```
+
+App icon: the source is `Design/icon-source.png` (a full-bleed 1024 squircle with
+transparent corners). Regenerate the icon set with
+`swift Design/make-icon.swift Design/icon-source.png SimDrop/Assets.xcassets/AppIcon.appiconset`.
+The script scales the artwork to the 824pt macOS icon grid and adds a drop shadow.
+
+Dev launch flags:
+
+- `open SimDrop.app --args -reregisterHelper YES` re-registers the launchd agent
+  after its plist changes.
+- `open SimDrop.app --args -resetDomain YES` removes the domain with all local
+  state and re-adds it.
+
+Logs: `log stream --predicate 'subsystem == "com.rxliuli.sim-drop"'`
