@@ -18,7 +18,11 @@ cp config.json ~/Library/CloudStorage/SimDrop-SimDrop/iPhone\ Duo/Downloads/
 
 ## Install
 
-Download `SimDrop-macos.dmg` from GitHub Releases. It is Developer ID signed and
+```sh
+brew install rxliuli/tap/sim-drop
+```
+
+Or download `SimDrop-macos.dmg` from GitHub Releases. It is Developer ID signed and
 notarized. SimDrop isn't on the Mac App Store and can't be: the app and its helper
 must run unsandboxed to drive `simctl` and the simulators' folders.
 
@@ -141,7 +145,8 @@ changes on `main`. It generates the project with XcodeGen, then uses
 sign with Developer ID, build the DMG, notarize, staple and publish a GitHub Release.
 The `release-macOS` environment needs these secrets: `APPLE_CERTIFICATE_DEVELOPERID_BASE64`,
 `APPLE_CERTIFICATE_DEVELOPERID_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
-`APPLE_API_ISSUER`.
+`APPLE_API_ISSUER`, and optionally `TAP_GITHUB_TOKEN`. When it is set, the release also
+bumps `Casks/sim-drop.rb` in `rxliuli/homebrew-tap`.
 
 No provisioning profile is involved. The app group is Team-ID-prefixed
 (`N2X78TUUFG.com.rxliuli.sim-drop`, not `group.…`), which macOS accepts without one.

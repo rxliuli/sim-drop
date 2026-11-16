@@ -72,6 +72,12 @@ jobs:
   release:
     needs: [check-version, build-macos]
     runs-on: ubuntu-latest
+    # TAP_GITHUB_TOKEN lives in the release-macOS environment. It is optional: when it is
+    # not set the cask bump is skipped. `secrets` cannot be used in an `if` condition, so it
+    # goes through a job-level env and the step tests env.TAP_TOKEN instead.
+    environment: release-macOS
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
 
@@ -92,5 +98,12 @@ jobs:
             --generate-notes \
             artifacts/*
 
-      # Homebrew: once a `sim-drop` cask exists in the tap, add the same
-      # rxliuli/apple-release/tap-update@v1 step the other apps use (gated on TAP_GITHUB_TOKEN).
+      # Rewrites only the cask's version / sha256 lines (Casks/sim-drop.rb in rxliuli/homebrew-tap).
+      - name: Update Homebrew tap
+        if: env.TAP_TOKEN != ''
+        uses: rxliuli/apple-release/tap-update@v1
+        with:
+          cask: sim-drop
+          version: ${{ needs.check-version.outputs.version }}
+          artifact: artifacts/SimDrop-macos.dmg
+          token: ${{ env.TAP_TOKEN }}
