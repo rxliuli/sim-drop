@@ -41,9 +41,12 @@ window can be closed.
 The helper keeps itself current. Opening SimDrop checks that the helper actually
 responds with this build's version, and re-registers it if not, so opening the app
 always repairs a missing or outdated helper. After an upgrade, the old helper notices
-that its executable was replaced and exits, and launchd starts the new one. The Homebrew
-cask also runs `SimDrop.app --args -setupOnly YES` (no UI) after every install and
-upgrade.
+that its executable was replaced and exits, and launchd starts the new one. If the
+helper is gone entirely (e.g. something removed its launchd job), the File Provider
+extension notices as soon as Finder shows SimDrop. It then launches the app headless
+(`SimDrop.app --args -setupOnly YES`), which re-registers the helper. This retries at
+most once every 10 minutes. (A Homebrew `postflight_steps` can't do this, because
+`open` fails inside the cask step sandbox.)
 
 ## Behavior to know about
 

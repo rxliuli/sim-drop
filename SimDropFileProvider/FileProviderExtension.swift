@@ -12,6 +12,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         self.domain = domain
         self.manager = NSFileProviderManager(for: domain)
         super.init()
+        HelperRepair.checkSoon()
     }
 
     func invalidate() {}
