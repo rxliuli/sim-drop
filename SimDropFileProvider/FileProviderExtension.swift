@@ -89,6 +89,30 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
 
         switch parent {
+        // Re-imports: after the domain reconnects (e.g. the app was replaced by an upgrade)
+        // the system may ask to "create" folders it already had. Adopt our own virtual
+        // folders instead of rejecting them; a rejected create stays pending forever and
+        // the system then ignores deletions of it (a shut-down simulator never disappears).
+        case .root:
+            guard isFolder, let udid = SimulatorStore.udid(forFolderName: name) else {
+                fail(CocoaError(.featureUnsupported))
+                return Progress()
+            }
+            completionHandler(Item.virtualFolder(.device(udid), parent: .root, name: name), [], false, nil)
+            SimDropConfig.signalChanges()  // drops it again if that simulator isn't booted
+
+        case .device(let udid):
+            switch (isFolder, name) {
+            case (true, "Downloads"):
+                completionHandler(Item.virtualFolder(.downloads(udid), parent: .device(udid), name: name,
+                                                     caps: Item.dropFolderCaps), [], false, nil)
+            case (true, "Photos and Videos"):
+                completionHandler(Item.virtualFolder(.photos(udid), parent: .device(udid), name: name,
+                                                     caps: Item.dropFolderCaps), [], false, nil)
+            default:
+                fail(CocoaError(.featureUnsupported))
+            }
+
         case .downloads(let udid), .download(let udid, _):
             var parentRel: String?
             if case .download(_, let rel) = parent { parentRel = rel }

@@ -38,18 +38,15 @@ one-time approvals are done:
 After that it works silently in the background, including after a restart. The
 window can be closed.
 
-The helper keeps itself current. Opening SimDrop checks that the helper actually
-responds with this build's version, and re-registers it if not, so opening the app
-always repairs a missing or outdated helper. After an upgrade, the old helper notices
-that its executable was replaced and exits, and launchd starts the new one. If the
-helper is gone entirely (e.g. something removed its launchd job), the File Provider
-extension notices as soon as Finder shows SimDrop. It then launches the app headless
-(`SimDrop.app --args -setupOnly YES`), which re-registers the helper. It checks at
-most once a minute and relaunches at most every 2 minutes. If a fresh registration
-still doesn't answer (launchd refuses to spawn a job whose recorded launch constraint
-is stale: `needs LWCR update`, exit 78), the app boots the job out of launchd and
-registers it again. (A Homebrew `postflight_steps` can't do this, because
-`open` fails inside the cask step sandbox.)
+**After installing or upgrading, open SimDrop once.** Replacing the app makes macOS
+drop its Finder extension (Finder then says the application can't be found) and stop the
+background helper. launchd refuses to start a helper whose recorded launch constraint
+came from the old copy (`needs LWCR update`, exit 78). Until the new version has been
+launched, no part of SimDrop can run to repair this. A Homebrew `postflight_steps` can't
+launch it either, because `open` fails inside the cask step sandbox. So the cask shows a
+caveat instead. Opening the app re-registers the extension and makes sure the helper
+answers with this build's version. If needed, it boots the stale launchd job out and
+registers the helper again.
 
 ## Behavior to know about
 
@@ -138,6 +135,11 @@ Implementation notes:
   only asks File Providers for thumbnails of media types, never for `.app`, `.ipa` or
   `.zip` (an app-install feature was tried and removed for now). Thumbnails are
   cached per content version, so bump `Item.contentSchema` after changing them.
+- **Re-imports.** After the domain reconnects (e.g. following an upgrade), the system
+  may call `createItem` for folders it already had, such as a simulator folder or its
+  Downloads / Photos and Videos. These are adopted under their real identifiers. A
+  rejected create stays pending forever, and the system ignores deletions of a pending
+  item, so a shut-down simulator would never disappear.
 - **Folder types.** Directories are always reported as `public.folder`, including
   bundles like `.app`. For uploads, the returned type must match the template, or
   the system keeps retrying the create and never uploads the children.

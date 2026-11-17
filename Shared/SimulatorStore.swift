@@ -58,6 +58,23 @@ enum SimulatorStore {
         return sims.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
+    /// The simulator a Finder folder name refers to ("iPhone Duo" or "iPhone Duo (iOS 27.2)…"),
+    /// booted or not, preferring a booted one. Used to re-adopt folders the system re-imports.
+    static func udid(forFolderName folder: String) -> String? {
+        let booted = Set(bootedSimulators().map(\.udid))
+        var matches: [String] = []
+        for udid in allDeviceUDIDs() {
+            guard
+                let data = try? Data(contentsOf: devicesURL.appendingPathComponent("\(udid)/device.plist")),
+                let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                let name = (plist["name"] as? String).map(sanitize),
+                folder == name || folder.hasPrefix(name + " (")
+            else { continue }
+            matches.append(udid)
+        }
+        return matches.first(where: booted.contains) ?? matches.first
+    }
+
     /// "com.apple.CoreSimulator.SimRuntime.iOS-27-2-iPhone19-4" -> "iOS 27.2"
     static func prettyRuntime(_ id: String) -> String? {
         guard let last = id.components(separatedBy: "SimRuntime.").last else { return nil }
