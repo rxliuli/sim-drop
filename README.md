@@ -207,3 +207,7 @@ com.rxliuli.sim-drop.FileProvider`) also hide SimDrop from System Settings › L
 Items & Extensions.
 
 Logs: `log stream --predicate 'subsystem == "com.rxliuli.sim-drop"'`
+
+## License
+
+[GPL-3.0](./LICENSE)
