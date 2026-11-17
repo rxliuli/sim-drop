@@ -176,4 +176,14 @@ Dev launch flags:
 - `open SimDrop.app --args -resetDomain YES` removes the domain with all local
   state and re-adds it.
 
+Switching between a dev build and an installed release: only one copy should be
+registered. launchd records a launch constraint (LWCR) for the helper with the signing
+identity of whichever copy registered it. If that copy differs from the one now on disk
+(e.g. Apple Development vs Developer ID), launchd refuses to start the helper
+(`last exit reason = OS_REASON_CODESIGNING`). Quit the other copy, then run
+`launchctl bootout gui/$(id -u)/com.rxliuli.sim-drop.helper` and launch the copy you
+want with `--args -reregisterHelper YES`. Duplicate extensions (`pluginkit -m -v -D -i
+com.rxliuli.sim-drop.FileProvider`) also hide SimDrop from System Settings › Login
+Items & Extensions.
+
 Logs: `log stream --predicate 'subsystem == "com.rxliuli.sim-drop"'`
