@@ -254,6 +254,7 @@ final class Enumerator: NSObject, NSFileProviderEnumerator {
     }
 
     func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+        HelperRepair.checkSoon()
         trackerLog.notice("enumerateItems \(self.container.rawValue, privacy: .public)")
         do {
             observer.didEnumerate(try items())

@@ -84,21 +84,59 @@ enum Setup {
 
     /// Makes sure the helper is registered *and actually running this build*. The
     /// registration can say "enabled" while launchd has no such job (e.g. a package
-    /// manager removed it during an upgrade) or while an older helper is still running,
-    /// so trust a live version check over `agent.status`.
+    /// manager removed it during an upgrade), while an older helper is still running, or
+    /// while launchd refuses to spawn it because its recorded launch constraint is stale
+    /// (`needs LWCR update`, exit 78). So trust a live version check over `agent.status`,
+    /// and if a fresh registration still doesn't answer, remove the launchd job entirely
+    /// and register once more (what fixes a stale constraint).
     static func ensureHelper(forceReregister: Bool = false) async -> Error? {
-        if forceReregister {
-            try? await agent.unregister()
-        } else if agent.status == .enabled, await HelperClient.version() != SimDropConfig.buildVersion {
+        if !forceReregister, agent.status == .enabled, await helperIsCurrent(wait: 0) {
+            return nil
+        }
+        if forceReregister || agent.status == .enabled {
             try? await agent.unregister()
         }
-        guard agent.status != .enabled else { return nil }
+        if let error = register() { return error }
+        if await helperIsCurrent(wait: 5) { return nil }
+
+        // Registered but not answering (or still the old version): start over.
+        bootoutHelperJob()
+        try? await agent.unregister()
+        if let error = register() { return error }
+        _ = await helperIsCurrent(wait: 5)
+        return nil
+    }
+
+    /// Always calls register(): right after unregister() the reported status can lag, so a
+    /// "skip if enabled" check would skip the re-registration. "Already registered" is fine.
+    private static func register() -> Error? {
         do {
             try agent.register()
             return nil
         } catch {
-            return error
+            return agent.status == .enabled ? nil : error
         }
+    }
+
+    /// Polls the helper's version for up to `wait` seconds.
+    private static func helperIsCurrent(wait: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(wait)
+        repeat {
+            if await HelperClient.version(timeout: 1) == SimDropConfig.buildVersion { return true }
+            if Date() >= deadline { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        } while true
+        return false
+    }
+
+    private static func bootoutHelperJob() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["bootout", "gui/\(getuid())/\(SimDropConfig.helperLabel)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
     }
 }
 

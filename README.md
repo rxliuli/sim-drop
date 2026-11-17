@@ -44,8 +44,11 @@ always repairs a missing or outdated helper. After an upgrade, the old helper no
 that its executable was replaced and exits, and launchd starts the new one. If the
 helper is gone entirely (e.g. something removed its launchd job), the File Provider
 extension notices as soon as Finder shows SimDrop. It then launches the app headless
-(`SimDrop.app --args -setupOnly YES`), which re-registers the helper. This retries at
-most once every 10 minutes. (A Homebrew `postflight_steps` can't do this, because
+(`SimDrop.app --args -setupOnly YES`), which re-registers the helper. It checks at
+most once a minute and relaunches at most every 2 minutes. If a fresh registration
+still doesn't answer (launchd refuses to spawn a job whose recorded launch constraint
+is stale: `needs LWCR update`, exit 78), the app boots the job out of launchd and
+registers it again. (A Homebrew `postflight_steps` can't do this, because
 `open` fails inside the cask step sandbox.)
 
 ## Behavior to know about

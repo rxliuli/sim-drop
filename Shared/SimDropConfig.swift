@@ -5,6 +5,8 @@ enum SimDropConfig {
     static let domainIdentifier = NSFileProviderDomainIdentifier("simdrop")
     static let helperMachService = "com.rxliuli.sim-drop.helper"
     static let helperPlistName = "com.rxliuli.sim-drop.helper.plist"
+    /// launchd label of the helper (the plist's Label).
+    static let helperLabel = "com.rxliuli.sim-drop.helper"
     /// Team that signs every SimDrop binary; used to authenticate XPC peers.
     static let teamID = "N2X78TUUFG"
     /// userInfo keys on "saved to Downloads" notifications.
