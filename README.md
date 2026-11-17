@@ -19,7 +19,7 @@ cp config.json ~/Library/CloudStorage/SimDrop-SimDrop/iPhone\ Duo/Downloads/
 ## Install
 
 ```sh
-brew install rxliuli/tap/sim-drop
+brew install --cask rxliuli/tap/sim-drop
 ```
 
 Or download `SimDrop-macos.dmg` from GitHub Releases. It is Developer ID signed and
