@@ -183,7 +183,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             // Re-imports (e.g. after the domain is re-added) upload files that are
             // already there; reuse identical files instead of creating "name 2".
             let identical = !isFolder && contents.map { fm.contentsEqual(atPath: $0.path, andPath: dest.path) } == true
-            if mayAlreadyExist || identical { return try Resolver().item(.download(udid, rel(dest))) }
+            if mayAlreadyExist || identical { return try Resolver().item(.download(udid, rel(dest)), requireBooted: false) }
             dest = uniqueURL(for: dest)
         }
 
@@ -194,7 +194,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         } else {
             fm.createFile(atPath: dest.path, contents: Data())
         }
-        return try Resolver().item(.download(udid, rel(dest)))
+        return try Resolver().item(.download(udid, rel(dest)), requireBooted: false)
     }
 
     private func uniqueURL(for url: URL) -> URL {

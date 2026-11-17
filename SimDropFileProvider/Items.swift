@@ -150,8 +150,12 @@ struct Resolver {
             : [.allowsReading, .allowsWriting, .allowsDeleting, .allowsTrashing]
     }
 
-    func item(_ id: ItemID) throws -> Item {
-        if let udid = id.udid { _ = try sim(udid) }
+    /// `requireBooted: false` for items the system is (re-)creating: after the domain
+    /// reconnects it re-imports cached files, including ones under a simulator that has
+    /// since shut down. Answering "no such item" there leaves the import pending forever,
+    /// which blocks deleting that simulator's folder.
+    func item(_ id: ItemID, requireBooted: Bool = true) throws -> Item {
+        if requireBooted, let udid = id.udid { _ = try sim(udid) }
         switch id {
         case .root:
             return .virtualFolder(.root, parent: .root, name: "SimDrop")
