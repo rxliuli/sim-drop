@@ -40,6 +40,17 @@ enum HelperClient {
         }
     }
 
+    /// The running helper's version, or nil if it can't be reached within `timeout`.
+    static func version(timeout: TimeInterval = 2) async -> String? {
+        await withCheckedContinuation { cont in
+            let once = Once<String?> { cont.resume(returning: $0) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { once(nil) }
+            withProxy(onError: { _ in once(nil) }) { proxy, done in
+                proxy.version { once($0); done() }
+            }
+        }
+    }
+
     static func trashPhoto(udid: String, relativePath: String, completion: @escaping (Error?) -> Void) {
         let once = Once<Error?>(completion)
         withProxy(onError: { once($0) }) { proxy, done in

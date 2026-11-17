@@ -9,6 +9,10 @@ let log = Logger(subsystem: "com.rxliuli.sim-drop", category: "helper")
 // MARK: - XPC service
 
 final class HelperService: NSObject, HelperProtocol {
+    func version(reply: @escaping (String) -> Void) {
+        reply(SimDropConfig.buildVersion)
+    }
+
     func addMedia(udid: String, fileName: String, file: FileHandle, reply: @escaping (String?, String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -252,6 +256,42 @@ final class DeviceWatcher {
     }
 }
 
+// MARK: - Upgrade watcher
+
+/// Exits when this executable is replaced on disk (the app was upgraded or reinstalled).
+/// launchd's KeepAlive then starts the new binary, so an upgrade never leaves the old
+/// helper running.
+enum UpgradeWatcher {
+    private static var timer: DispatchSourceTimer?
+
+    static func start() {
+        guard let path = executablePath(), let original = inode(path) else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 15, repeating: 15)
+        timer.setEventHandler {
+            if inode(path) != original {
+                log.notice("executable replaced; exiting so launchd starts the new version")
+                exit(0)
+            }
+        }
+        timer.resume()
+        self.timer = timer
+    }
+
+    private static func executablePath() -> String? {
+        var size: UInt32 = 0
+        _NSGetExecutablePath(nil, &size)
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+    }
+
+    private static func inode(_ path: String) -> UInt64? {
+        var info = stat()
+        return stat(path, &info) == 0 ? UInt64(info.st_ino) : nil
+    }
+}
+
 // MARK: - Main
 
 let delegate = ListenerDelegate()
@@ -261,6 +301,7 @@ listener.resume()
 
 let watcher = DeviceWatcher()
 watcher.start()
+UpgradeWatcher.start()
 
 Task {
     do {
@@ -271,5 +312,5 @@ Task {
     SimDropConfig.signalChanges()
 }
 
-log.notice("SimDropHelper started")
+log.notice("SimDropHelper \(SimDropConfig.buildVersion, privacy: .public) started")
 dispatchMain()

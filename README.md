@@ -38,6 +38,13 @@ one-time approvals are done:
 After that it works silently in the background, including after a restart. The
 window can be closed.
 
+The helper keeps itself current. Opening SimDrop checks that the helper actually
+responds with this build's version, and re-registers it if not, so opening the app
+always repairs a missing or outdated helper. After an upgrade, the old helper notices
+that its executable was replaced and exits, and launchd starts the new one. The Homebrew
+cask also runs `SimDrop.app --args -setupOnly YES` (no UI) after every install and
+upgrade.
+
 ## Behavior to know about
 
 ### Dragging moves by default (hold ⌥ to copy)
@@ -175,6 +182,11 @@ Dev launch flags:
   after its plist changes.
 - `open SimDrop.app --args -resetDomain YES` removes the domain with all local
   state and re-adds it.
+
+Don't remove the helper's launchd job on a plain uninstall (e.g. `uninstall launchctl:`
+in the cask). `brew upgrade` runs the old version's uninstall step before installing the
+new one, so the job disappears while the registration still says "enabled". The cask
+only does this on `--zap`.
 
 Switching between a dev build and an installed release: only one copy should be
 registered. launchd records a launch constraint (LWCR) for the helper with the signing

@@ -37,6 +37,14 @@ enum SimDropConfig {
         }
     }
 
+    /// Version string of this build, as reported by `HelperProtocol.version`.
+    static var buildVersion: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let short = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
     /// Asks the system to re-enumerate the working set (Finder refresh).
     static func signalChanges() {
         guard let manager = NSFileProviderManager(for: domain) else {
@@ -52,6 +60,10 @@ enum SimDropConfig {
 /// XPC interface exposed by SimDropHelper (to the extension and the app).
 @objc(SimDropHelperProtocol)
 protocol HelperProtocol {
+    /// "<CFBundleShortVersionString> (<CFBundleVersion>)" of the running helper. The app
+    /// uses it to tell a live, current helper from a missing or outdated one.
+    func version(reply: @escaping (String) -> Void)
+
     /// Imports a media file into the simulator's Photos library.
     /// Replies with the new file's path relative to `DCIM/`, or an error message.
     func addMedia(udid: String, fileName: String, file: FileHandle, reply: @escaping (String?, String?) -> Void)

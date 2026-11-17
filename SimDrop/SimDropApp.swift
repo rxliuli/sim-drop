@@ -8,6 +8,22 @@ struct SimDropApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var model = StatusModel()
 
+    init() {
+        // `open SimDrop.app --args -setupOnly YES` (run by the Homebrew cask after install
+        // and upgrade): make sure the helper and the Finder location are set up, then quit
+        // without showing any UI.
+        if UserDefaults.standard.bool(forKey: "setupOnly") {
+            let done = DispatchSemaphore(value: 0)
+            Task.detached {
+                _ = await Setup.ensureHelper()
+                try? await SimDropConfig.ensureDomain()
+                done.signal()
+            }
+            _ = done.wait(timeout: .now() + 30)
+            exit(0)
+        }
+    }
+
     var body: some Scene {
         Window("SimDrop", id: "settings") {
             SettingsView()
@@ -62,28 +78,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 }
 
+/// Registration logic shared by the settings window and the headless `-setupOnly` mode.
+enum Setup {
+    static let agent = SMAppService.agent(plistName: SimDropConfig.helperPlistName)
+
+    /// Makes sure the helper is registered *and actually running this build*. The
+    /// registration can say "enabled" while launchd has no such job (e.g. a package
+    /// manager removed it during an upgrade) or while an older helper is still running,
+    /// so trust a live version check over `agent.status`.
+    static func ensureHelper(forceReregister: Bool = false) async -> Error? {
+        if forceReregister {
+            try? await agent.unregister()
+        } else if agent.status == .enabled, await HelperClient.version() != SimDropConfig.buildVersion {
+            try? await agent.unregister()
+        }
+        guard agent.status != .enabled else { return nil }
+        do {
+            try agent.register()
+            return nil
+        } catch {
+            return error
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class StatusModel {
     var helperStatus: SMAppService.Status = .notRegistered
+    /// Version reported by the running helper; nil when it can't be reached.
+    var helperVersion: String?
     var extensionEnabled: Bool?
     var notificationStatus: UNAuthorizationStatus = .notDetermined
     var simulators: [BootedSimulator] = []
     var error: String?
 
-    private let agent = SMAppService.agent(plistName: SimDropConfig.helperPlistName)
+    private var agent: SMAppService { Setup.agent }
 
     func setup() async {
-        // Dev: `open SimDrop.app --args -reregisterHelper YES` after the launchd plist changes.
-        if UserDefaults.standard.bool(forKey: "reregisterHelper") {
-            try? await agent.unregister()
-        }
-        if agent.status != .enabled {
-            do {
-                try agent.register()
-            } catch {
-                self.error = "Background service: \(error.localizedDescription)"
-            }
+        // Dev: `open SimDrop.app --args -reregisterHelper YES` forces a fresh registration.
+        if let error = await Setup.ensureHelper(
+            forceReregister: UserDefaults.standard.bool(forKey: "reregisterHelper")) {
+            self.error = "Background service: \(error.localizedDescription)"
         }
         // Dev: `open SimDrop.app --args -resetDomain YES` wipes the domain's local state
         // (e.g. a stale .Trash left over from an earlier domain instance) and re-adds it.
@@ -108,6 +144,7 @@ final class StatusModel {
 
     func refresh() async {
         helperStatus = agent.status
+        helperVersion = await HelperClient.version(timeout: 1)
         let domains = try? await NSFileProviderManager.domains()
         extensionEnabled = domains?.first { $0.identifier == SimDropConfig.domainIdentifier }?.userEnabled
         simulators = SimulatorStore.bootedSimulators()
@@ -142,7 +179,7 @@ struct SettingsView: View {
         Form {
             Section {
                 StatusRow(
-                    ok: model.helperStatus == .enabled,
+                    ok: model.helperStatus == .enabled && model.helperVersion != nil,
                     title: helperTitle,
                     detail: "Runs in the background to detect simulators and import photos."
                 ) {
@@ -210,6 +247,9 @@ struct SettingsView: View {
     }
 
     private var helperTitle: String {
+        if model.helperStatus == .enabled && model.helperVersion == nil {
+            return "Not running (reopen SimDrop to restart it)"
+        }
         switch model.helperStatus {
         case .enabled: return "Running"
         case .requiresApproval: return "Needs approval in Login Items"
