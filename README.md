@@ -22,9 +22,11 @@ cp config.json ~/Library/CloudStorage/SimDrop-SimDrop/iPhone\ Duo/Downloads/
 brew install --cask rxliuli/tap/sim-drop
 ```
 
-Or download `SimDrop-macos.dmg` from GitHub Releases. It is Developer ID signed and
-notarized. SimDrop isn't on the Mac App Store and can't be: the app and its helper
-must run unsandboxed to drive `simctl` and the simulators' folders.
+Or download `SimDrop-macos.dmg` from
+[GitHub Releases](https://github.com/rxliuli/sim-drop/releases). Requires macOS 15 or
+later. It is Developer ID signed and notarized. SimDrop isn't on the Mac App Store and
+can't be: the app and its helper must run unsandboxed to drive `simctl` and the
+simulators' folders.
 
 ## Setup
 
