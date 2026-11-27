@@ -2,6 +2,8 @@
 
 Shows running iOS simulators in the Finder sidebar so you can drag files in and out of them.
 
+![Finder showing an iPhone Duo simulator's Photos and Videos folder under SimDrop in the sidebar](./Design/screenshot.png)
+
 ```
 SimDrop                      ← Finder sidebar › Locations
 └── iPhone Duo/              ← one folder per *booted* simulator
